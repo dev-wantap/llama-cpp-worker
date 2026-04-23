@@ -1,4 +1,3 @@
-import glob
 import os
 import shlex
 import subprocess
@@ -9,10 +8,7 @@ from typing import Optional
 import requests
 import runpod
 
-HF_CACHE_ROOT = Path("/runpod-volume/huggingface-cache/hub")
-
-MODEL_NAME = os.environ["MODEL_NAME"]
-GGUF_FILE = os.environ.get("GGUF_FILE", "").strip()
+MODEL_PATH = os.environ["MODEL_PATH"].strip()
 MODEL_ALIAS = os.environ.get("MODEL_ALIAS", "supergemma4-26b")
 LLAMA_SERVER_HOST = os.environ.get("LLAMA_SERVER_HOST", "127.0.0.1")
 LLAMA_SERVER_PORT = int(os.environ.get("LLAMA_SERVER_PORT", "8000"))
@@ -21,9 +17,6 @@ LLAMA_SERVER_ARGS = os.environ.get(
 )
 STARTUP_TIMEOUT_SEC = int(os.environ.get("STARTUP_TIMEOUT_SEC", "1800"))
 REQUEST_TIMEOUT_SEC = int(os.environ.get("REQUEST_TIMEOUT_SEC", "1800"))
-
-os.environ["HF_HUB_OFFLINE"] = "1"
-os.environ["TRANSFORMERS_OFFLINE"] = "1"
 
 _http = requests.Session()
 _llama_process = None
@@ -42,58 +35,17 @@ def _check_llama_process(process: Optional[subprocess.Popen]) -> None:
     )
 
 
-def resolve_snapshot_dir(model_id: str) -> Path:
-    if "/" not in model_id:
-        raise ValueError(f"MODEL_NAME must be 'org/name' format, got: {model_id}")
+def resolve_model_path() -> Path:
+    if not MODEL_PATH:
+        raise ValueError("MODEL_PATH must not be empty")
 
-    org, name = model_id.split("/", 1)
-    model_root = HF_CACHE_ROOT / f"models--{org}--{name}"
-    refs_main = model_root / "refs" / "main"
-    snapshots_dir = model_root / "snapshots"
-
-    if not model_root.exists():
+    model_path = Path(MODEL_PATH)
+    if not model_path.is_file():
         raise FileNotFoundError(
-            f"Cached model root not found: {model_root}\n"
-            f"Did you set the Runpod endpoint Model field to '{model_id}' and redeploy?"
+            f"MODEL_PATH does not exist or is not a file: {model_path}"
         )
 
-    if refs_main.is_file():
-        snapshot_hash = refs_main.read_text().strip()
-        candidate = snapshots_dir / snapshot_hash
-        if candidate.is_dir():
-            return candidate
-
-    if not snapshots_dir.is_dir():
-        raise FileNotFoundError(f"Snapshots directory not found: {snapshots_dir}")
-
-    versions = [path for path in snapshots_dir.iterdir() if path.is_dir()]
-    if not versions:
-        raise FileNotFoundError(
-            f"No snapshot subdirectories found under: {snapshots_dir}"
-        )
-
-    versions.sort(key=lambda path: path.stat().st_mtime, reverse=True)
-    return versions[0]
-
-
-def resolve_model_file(snapshot_dir: Path, gguf_file: str) -> Path:
-    if gguf_file:
-        candidate = snapshot_dir / gguf_file
-        if not candidate.is_file():
-            raise FileNotFoundError(f"GGUF file not found: {candidate}")
-        return candidate
-
-    matches = sorted(Path(path) for path in glob.glob(str(snapshot_dir / "*.gguf")))
-    if len(matches) == 1:
-        return matches[0]
-
-    if not matches:
-        raise FileNotFoundError(f"No .gguf file found in snapshot: {snapshot_dir}")
-
-    raise RuntimeError(
-        "Multiple .gguf files found. Set GGUF_FILE explicitly.\n"
-        + "\n".join(str(path.name) for path in matches)
-    )
+    return model_path
 
 
 def wait_for_llama_server(process: Optional[subprocess.Popen] = None) -> None:
@@ -119,11 +71,8 @@ def wait_for_llama_server(process: Optional[subprocess.Popen] = None) -> None:
 
 
 def start_llama_server() -> subprocess.Popen:
-    snapshot_dir = resolve_snapshot_dir(MODEL_NAME)
-    model_path = resolve_model_file(snapshot_dir, GGUF_FILE)
+    model_path = resolve_model_path()
 
-    print(f"[startup] MODEL_NAME={MODEL_NAME}")
-    print(f"[startup] snapshot_dir={snapshot_dir}")
     print(f"[startup] model_path={model_path}")
 
     command = [
