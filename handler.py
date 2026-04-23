@@ -8,7 +8,7 @@ from typing import Optional
 import requests
 import runpod
 
-MODEL_PATH = os.environ["MODEL_PATH"].strip()
+VOLUME_ROOT = Path("/runpod-volume")
 MODEL_ALIAS = os.environ.get("MODEL_ALIAS", "supergemma4-26b")
 LLAMA_SERVER_HOST = os.environ.get("LLAMA_SERVER_HOST", "127.0.0.1")
 LLAMA_SERVER_PORT = int(os.environ.get("LLAMA_SERVER_PORT", "8000"))
@@ -20,6 +20,35 @@ REQUEST_TIMEOUT_SEC = int(os.environ.get("REQUEST_TIMEOUT_SEC", "1800"))
 
 _http = requests.Session()
 _llama_process = None
+
+
+def _get_model_path_env() -> str:
+    return os.environ.get("MODEL_PATH", "").strip()
+
+
+def _safe_dir_listing(path: Path, limit: int = 20) -> list[str]:
+    if not path.exists() or not path.is_dir():
+        return []
+
+    entries = sorted(item.name for item in path.iterdir())
+    return entries[:limit]
+
+
+def log_startup_diagnostics() -> None:
+    model_path = _get_model_path_env()
+
+    print(f"[startup] volume_root={VOLUME_ROOT}")
+    print(f"[startup] volume_root_exists={VOLUME_ROOT.exists()}")
+    print(f"[startup] volume_root_is_dir={VOLUME_ROOT.is_dir()}")
+    print(f"[startup] volume_root_entries={_safe_dir_listing(VOLUME_ROOT)}")
+    print(f"[startup] MODEL_PATH={model_path!r}")
+
+    if model_path:
+        path = Path(model_path)
+        print(f"[startup] model_path_exists={path.exists()}")
+        print(f"[startup] model_path_is_file={path.is_file()}")
+        print(f"[startup] model_path_parent={path.parent}")
+        print(f"[startup] model_path_parent_entries={_safe_dir_listing(path.parent)}")
 
 
 def _check_llama_process(process: Optional[subprocess.Popen]) -> None:
@@ -36,10 +65,12 @@ def _check_llama_process(process: Optional[subprocess.Popen]) -> None:
 
 
 def resolve_model_path() -> Path:
-    if not MODEL_PATH:
+    model_path_env = _get_model_path_env()
+
+    if not model_path_env:
         raise ValueError("MODEL_PATH must not be empty")
 
-    model_path = Path(MODEL_PATH)
+    model_path = Path(model_path_env)
     if not model_path.is_file():
         raise FileNotFoundError(
             f"MODEL_PATH does not exist or is not a file: {model_path}"
@@ -71,6 +102,7 @@ def wait_for_llama_server(process: Optional[subprocess.Popen] = None) -> None:
 
 
 def start_llama_server() -> subprocess.Popen:
+    log_startup_diagnostics()
     model_path = resolve_model_path()
 
     print(f"[startup] model_path={model_path}")
