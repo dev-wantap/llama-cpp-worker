@@ -20,8 +20,9 @@ ARG LLAMA_CPP_REF=master
 RUN git clone --depth 1 --branch ${LLAMA_CPP_REF} ${LLAMA_CPP_REPO} /opt/llama.cpp && \
     cmake -S /opt/llama.cpp -B /opt/llama.cpp/build \
       -DGGML_CUDA=ON \
+      -DGGML_CUDA_NO_VMM=ON \
       -DCMAKE_BUILD_TYPE=Release && \
-    cmake --build /opt/llama.cpp/build --config Release -j"$(nproc)"
+    cmake --build /opt/llama.cpp/build --config Release --target llama-server -j"$(nproc)"
 
 WORKDIR /app
 
